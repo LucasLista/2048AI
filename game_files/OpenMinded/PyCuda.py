@@ -45,10 +45,10 @@ __device__ void addTile(int8_t *current_row, curandState *state) {
     state[idx] = localState;
 }
 
-__device__ int moveLeft(int8_t *current_row, int *current_score, curandState *state) {
-    __shared__ int didSomethingHappen;
+__device__ bool moveLeft(int8_t *current_row, int *current_score, curandState *state, bool addTileBool = true) {
+    __shared__ bool didSomethingHappen;
     if (threadIdx.x == 0) {
-        didSomethingHappen = 0;
+        didSomethingHappen = false;
     }
     __syncthreads();
     for (int i = 0; i < 3; i++) {
@@ -58,7 +58,7 @@ __device__ int moveLeft(int8_t *current_row, int *current_score, curandState *st
                 if (current_row[j] != 0) {
                     current_row[i] = current_row[j];
                     current_row[j] = 0;
-                    didSomethingHappen = 1;
+                    didSomethingHappen = true;
                     break;
                 }
                 j++;
@@ -71,7 +71,7 @@ __device__ int moveLeft(int8_t *current_row, int *current_score, curandState *st
             current_row[i] += 1;
             current_row[i+1] = 0;
             atomicAdd(current_score, (1 << current_row[i]));
-            didSomethingHappen = 1;
+            didSomethingHappen = true;
         }
     }
 
@@ -82,7 +82,7 @@ __device__ int moveLeft(int8_t *current_row, int *current_score, curandState *st
                 if (current_row[j] != 0) {
                     current_row[i] = current_row[j];
                     current_row[j] = 0;
-                    didSomethingHappen = 1;
+                    didSomethingHappen = true;
                     break;
                 }
                 j++;
@@ -90,16 +90,16 @@ __device__ int moveLeft(int8_t *current_row, int *current_score, curandState *st
         }
     }
     __syncthreads();
-    if (didSomethingHappen == 1 && threadIdx.x == 0) {
+    if (didSomethingHappen && threadIdx.x == 0 && addTileBool) {
         addTile(current_row, state);
     }
     return didSomethingHappen;
 }
 
-__device__ int moveRight(int8_t *current_row, int *current_score, curandState *state) {
-    __shared__ int didSomethingHappen;
+__device__ bool moveRight(int8_t *current_row, int *current_score, curandState *state, bool addTileBool = true) {
+    __shared__ bool didSomethingHappen;
     if (threadIdx.x == 0) {
-        didSomethingHappen = 0;
+        didSomethingHappen = false;
     }
     __syncthreads();
     for (int i = 3; i > 0; i--) {
@@ -109,7 +109,7 @@ __device__ int moveRight(int8_t *current_row, int *current_score, curandState *s
                 if (current_row[j] != 0) {
                     current_row[i] = current_row[j];
                     current_row[j] = 0;
-                    didSomethingHappen = 1;
+                    didSomethingHappen = true;
                     break;
                 }
                 j--;
@@ -122,7 +122,7 @@ __device__ int moveRight(int8_t *current_row, int *current_score, curandState *s
             current_row[i] += 1;
             current_row[i-1] = 0;
             atomicAdd(current_score, (1 << current_row[i]));
-            didSomethingHappen = 1;
+            didSomethingHappen = true;
         }
     }
 
@@ -133,7 +133,7 @@ __device__ int moveRight(int8_t *current_row, int *current_score, curandState *s
                 if (current_row[j] != 0) {
                     current_row[i] = current_row[j];
                     current_row[j] = 0;
-                    didSomethingHappen = 1;
+                    didSomethingHappen = true;
                     break;
                 }
                 j--;
@@ -141,16 +141,16 @@ __device__ int moveRight(int8_t *current_row, int *current_score, curandState *s
         }
     }
     __syncthreads();
-    if (didSomethingHappen == 1 && threadIdx.x == 0) {
+    if (didSomethingHappen && threadIdx.x == 0 && addTileBool) {
         addTile(current_row, state);
     }
     return didSomethingHappen;
 }
 
-__device__ int moveUp(int8_t *current_row, int *current_score, curandState *state) {
-    __shared__ int didSomethingHappen;
+__device__ bool moveUp(int8_t *current_row, int *current_score, curandState *state, bool addTileBool = true) {
+    __shared__ bool didSomethingHappen;
     if (threadIdx.x == 0) {
-        didSomethingHappen = 0;
+        didSomethingHappen = false;
     }
     __syncthreads();
     for (int i = 0; i < 12; i += 4) {
@@ -160,7 +160,7 @@ __device__ int moveUp(int8_t *current_row, int *current_score, curandState *stat
                 if (current_row[j] != 0) {
                     current_row[i] = current_row[j];
                     current_row[j] = 0;
-                    didSomethingHappen = 1;
+                    didSomethingHappen = true;
                     break;
                 }
                 j += 4;
@@ -173,7 +173,7 @@ __device__ int moveUp(int8_t *current_row, int *current_score, curandState *stat
             current_row[i] += 1;
             current_row[i+4] = 0;
             atomicAdd(current_score, (1 << current_row[i]));
-            didSomethingHappen = 1;
+            didSomethingHappen = true;
         }
     }
 
@@ -184,7 +184,7 @@ __device__ int moveUp(int8_t *current_row, int *current_score, curandState *stat
                 if (current_row[j] != 0) {
                     current_row[i] = current_row[j];
                     current_row[j] = 0;
-                    didSomethingHappen = 1;
+                    didSomethingHappen = true;
                     break;
                 }
                 j += 4;
@@ -192,16 +192,16 @@ __device__ int moveUp(int8_t *current_row, int *current_score, curandState *stat
         }
     }
     __syncthreads();
-    if (didSomethingHappen == 1 && threadIdx.x == 0) {
+    if (didSomethingHappen && threadIdx.x == 0 && addTileBool) {
         addTile(current_row, state);
     }
     return didSomethingHappen;
 }
 
-__device__ int moveDown(int8_t *current_row, int *current_score, curandState *state) {
-    __shared__ int didSomethingHappen;
+__device__ bool moveDown(int8_t *current_row, int *current_score, curandState *state, bool addTileBool = true) {
+    __shared__ bool didSomethingHappen;
     if (threadIdx.x == 0) {
-        didSomethingHappen = 0;
+        didSomethingHappen = false;
     }
     __syncthreads();
     for (int i = 12; i > 0; i -= 4) {
@@ -211,7 +211,7 @@ __device__ int moveDown(int8_t *current_row, int *current_score, curandState *st
                 if (current_row[j] != 0) {
                     current_row[i] = current_row[j];
                     current_row[j] = 0;
-                    didSomethingHappen = 1;
+                    didSomethingHappen = true;
                     break;
                 }
                 j -= 4;
@@ -224,7 +224,7 @@ __device__ int moveDown(int8_t *current_row, int *current_score, curandState *st
             current_row[i] += 1;
             current_row[i-4] = 0;
             atomicAdd(current_score, (1 << current_row[i]));
-            didSomethingHappen = 1;
+            didSomethingHappen = true;
         }
     }
 
@@ -235,7 +235,7 @@ __device__ int moveDown(int8_t *current_row, int *current_score, curandState *st
                 if (current_row[j] != 0) {
                     current_row[i] = current_row[j];
                     current_row[j] = 0;
-                    didSomethingHappen = 1;
+                    didSomethingHappen = true;
                     break;
                 }
                 j -= 4;
@@ -243,7 +243,7 @@ __device__ int moveDown(int8_t *current_row, int *current_score, curandState *st
         }
     }
     __syncthreads();
-    if (didSomethingHappen == 1 && threadIdx.x == 0) {
+    if (didSomethingHappen && threadIdx.x == 0 && addTileBool) {
         addTile(current_row, state);
     }
     return didSomethingHappen;
@@ -256,47 +256,57 @@ __global__ void fourplicate(int8_t *g_initial_board, int8_t *g_final_board, int 
     g_final_scores[batchSize*boardno] = g_initial_score;
 }
 
-__global__ void firstMoves(int8_t *g_final_board, int *g_final_scores, curandState *states, int batchSize) {
+__global__ void firstMoves(int8_t *g_final_board, int *g_final_scores, curandState *states, int batchSize, bool *addTiles) {
     int boardno = blockIdx.x;
     int threadno = threadIdx.x;
     switch (boardno) {
         case 0:
-            moveLeft(&g_final_board[4*threadno], &g_final_scores[0], states);
+            addTiles[boardno] = moveLeft(&g_final_board[4*threadno], &g_final_scores[0], states, false);
             break;
         case 1:
-            moveUp(&g_final_board[batchSize*16+threadno], &g_final_scores[batchSize], states);
+            addTiles[boardno] = moveUp(&g_final_board[batchSize*16+threadno], &g_final_scores[batchSize], states, false);
             break;
         case 2:
-            moveRight(&g_final_board[2*batchSize*16+4*threadno], &g_final_scores[2*batchSize], states);
+            addTiles[boardno] = moveRight(&g_final_board[2*batchSize*16+4*threadno], &g_final_scores[2*batchSize], states, false);
             break;
         case 3:
-            moveDown(&g_final_board[3*batchSize*16+threadno], &g_final_scores[3*batchSize], states);
+            addTiles[boardno] = moveDown(&g_final_board[3*batchSize*16+threadno], &g_final_scores[3*batchSize], states, false);
             break;   
     }   
 }
 
-__global__ void duplicate(int8_t *g_final_board, int *g_final_scores, int batch_size) {
+__global__ void duplicate(int8_t *g_final_board, int *g_final_scores, int batchSize, bool *addTiles) {
     int boardno = blockIdx.x+1;
     int threadno = threadIdx.x;
-    g_final_board[16*(boardno+3*batch_size) + threadno] = g_final_board[3*batch_size*16 + threadno];
-    g_final_board[16*(boardno+2*batch_size) + threadno] = g_final_board[2*batch_size*16 + threadno];
-    g_final_board[16*(boardno+1*batch_size) + threadno] = g_final_board[batch_size*16 + threadno];
-    g_final_board[16*boardno + threadno] = g_final_board[threadno];
+    if (addTiles[(boardno-1+3*batchSize)/batchSize]) {g_final_board[16*(boardno+3*batchSize) + threadno] = g_final_board[3*batchSize*16 + threadno];}
+    if (addTiles[(boardno-1+2*batchSize)/batchSize]) {g_final_board[16*(boardno+2*batchSize) + threadno] = g_final_board[2*batchSize*16 + threadno];}
+    if (addTiles[(boardno-1+batchSize)/batchSize]) {g_final_board[16*(boardno+batchSize) + threadno] = g_final_board[batchSize*16 + threadno];}
+    if (addTiles[(boardno-1)/batchSize]) {g_final_board[16*boardno + threadno] = g_final_board[threadno];}
 
     if (threadno == 0) {
-        g_final_scores[boardno+3*batch_size] = g_final_scores[3*batch_size];
-        g_final_scores[boardno+2*batch_size] = g_final_scores[2*batch_size];
-        g_final_scores[boardno+1*batch_size] = g_final_scores[batch_size];
-        g_final_scores[boardno] = g_final_scores[0];
+        if (addTiles[(boardno-1+3*batchSize)/batchSize]) {g_final_scores[boardno+3*batchSize] = g_final_scores[3*batchSize];}
+        if (addTiles[(boardno-1+2*batchSize)/batchSize]) {g_final_scores[boardno+2*batchSize] = g_final_scores[2*batchSize];}
+        if (addTiles[(boardno-1+batchSize)/batchSize]) {g_final_scores[boardno+1*batchSize] = g_final_scores[batchSize];}
+        if (addTiles[(boardno-1)/batchSize]) {g_final_scores[boardno] = g_final_scores[0];}
     }  
 }
 
-__global__ void simulate(int8_t *g_final_board, int *g_final_scores, curandState *states, int simDepth) {
+__global__ void firstRandoms(int8_t *current_row, curandState *state, bool *addTiles, int batchSize) {
     int boardno = blockIdx.x;
+    if (addTiles[boardno/batchSize]) {
+        addTile(&current_row[16*boardno], state);
+    }
+}
+
+__global__ void simulate(int8_t *g_final_board, int *g_final_scores, curandState *states, int simDepth, int batchSize, bool *addTiles) {
+    int boardno = blockIdx.x;
+    if (!addTiles[boardno/batchSize]) {
+        return;
+    }
     int threadno = threadIdx.x; 
     __shared__ int direction;
     __shared__ int size;
-    int didSomethingHappen = 0;
+    bool didSomethingHappen = false;
     int availableMoves[4] = {0, 1, 2, 3};
     int dirindex = 0;
     for (int i = 0; i < simDepth; i++) {
@@ -328,18 +338,18 @@ __global__ void simulate(int8_t *g_final_board, int *g_final_scores, curandState
                     didSomethingHappen = moveDown(&g_final_board[16*boardno + threadno], &g_final_scores[boardno], states);
                     break;
             }
-            if (threadno == 0 && didSomethingHappen == 0) {
+            if (threadno == 0 && !didSomethingHappen) {
                 for (int j = dirindex; j < size - 1; j++) {
                     availableMoves[j] = availableMoves[j+1];
                 }
                 size--;
             }
             __syncthreads();
-            if (didSomethingHappen == 1) {
+            if (didSomethingHappen) {
                 break;
             }
         }
-        if (didSomethingHappen == 0) {
+        if (!didSomethingHappen) {
             g_final_scores[boardno] = -1;
             break;
         }
@@ -376,10 +386,12 @@ curand_states = cuda.mem_alloc(blocks * 48)
 mod.get_function("setupCurand")(curand_states, np.uint64(time.time()), block=(1, 1, 1), grid=(blocks, 1, 1))
 
 # Setup boards with first moves (left, up, right, down)
+firstMoveLegal = np.zeros((4), dtype=np.bool_)
+g_firstMoveLegal = cuda.mem_alloc(firstMoveLegal.nbytes)
 fourplicate = mod.get_function("fourplicate")
 firstMoves = mod.get_function("firstMoves")
 fourplicate(g_initial_board, g_final_boards, initial_score, g_final_scores, np.int32(batch_size), block=(16, 1, 1), grid=(4, 1, 1))
-firstMoves(g_final_boards, g_final_scores, curand_states, np.int32(batch_size), block=(4, 1, 1), grid=(4, 1, 1))
+firstMoves(g_final_boards, g_final_scores, curand_states, np.int32(batch_size), g_firstMoveLegal, block=(4, 1, 1), grid=(4, 1, 1))
 cuda.Context.synchronize()
 
 # For testing
@@ -401,28 +413,33 @@ for i in range(len(final_scores)):
 
 # Copy boards batch_size times
 duplicate = mod.get_function("duplicate")
-duplicate(g_final_boards, g_final_scores, np.int32(batch_size), block=(16,1, 1), grid=(batch_size-1, 1, 1))
+firstRandoms = mod.get_function("firstRandoms")
+duplicate(g_final_boards, g_final_scores, np.int32(batch_size), g_firstMoveLegal, block=(16,1, 1), grid=(batch_size-1, 1, 1))
+firstRandoms(g_final_boards, curand_states, g_firstMoveLegal, np.int32(batch_size), block=(1, 1, 1), grid=(blocks, 1, 1))
 cuda.Context.synchronize()
 
 # For testing
 """cuda.memcpy_dtoh(final_boards, g_final_boards)
 cuda.memcpy_dtoh(final_scores, g_final_scores)
 print(initial_board)
-for i in final_boards:
-    for j in i:
-        if np.any(j != i[0]):
-            print("SOMETHING WENT WRONG: PANIK", i[0],j)
-for i in final_scores:
-    for j in i:
-        if j != i[0]:
-            print("SOMETHING WENT WRONG: PANIK", i[0], j)
+# count=0
+# for i in [final_boards[0]]:
+#     for j in i:
+#         if np.any(j != i[0]):
+            # print("SOMETHING WENT WRONG: PANIK", i[0],j)
+            # count+=1
+# for i in final_scores:
+#     for j in i:
+#         if j != i[0]:
+#             print("SOMETHING WENT WRONG: PANIK", i[0], j)
+# print(count)
+print(final_boards[:,4])
+print(final_scores[:,4])"""
 
-print(final_boards[:,3])
-print(final_scores[:,3])"""
-
+# SIMULATE!!!!1!
 print("start")
 simulate = mod.get_function("simulate")
-simulate(g_final_boards, g_final_scores,curand_states, np.int32(sim_depth), block=(4, 1, 1), grid=(blocks, 1, 1))
+simulate(g_final_boards, g_final_scores,curand_states, np.int32(sim_depth), np.int32(batch_size), g_firstMoveLegal, block=(4, 1, 1), grid=(blocks, 1, 1))
 print("plz don't be slow men")
 cuda.Context.synchronize()
 cuda.memcpy_dtoh(final_boards, g_final_boards)
@@ -434,4 +451,4 @@ cuda.memcpy_dtoh(final_scores, g_final_scores)
 mean_scores = np.mean(final_scores, axis=1)
 std_scores = np.std(final_scores, axis=1,ddof=1)
 bounds = [(mean_scores[i] - 1.96*std_scores[i]/np.sqrt(batch_size), mean_scores[i] + 1.96*std_scores[i]/np.sqrt(batch_size)) for i in range(4)]
-print(mean_scores)
+print(bounds, mean_scores)
