@@ -6,6 +6,8 @@ import timeit
 import pygame
 import random
 import time
+import cProfile
+import pstats
 np.set_printoptions(suppress=True, threshold=np.inf)
 
 # Cuda code
@@ -350,105 +352,105 @@ __global__ void simulate(int8_t *g_final_board, int *g_final_scores, curandState
             }
         }
         if (!didSomethingHappen) {
-            g_final_scores[boardno] = -1;
+            g_final_scores[boardno] = 0;
             break;
         }
     }
 }
+
+__global__ void calcMeans(int *g_final_scores, int batchSize, double *means) {
+    int direction = blockIdx.x;
+    double sum = 0;
+    for (int i = 0; i < batchSize; i++) {
+        sum += g_final_scores[direction*batchSize + i];
+    }
+    means[direction] = sum / batchSize;
+}
+
 }
 """
+class simulate2048():
+    def __init__(self, sim_depth=20,batch_size=1000000):
 
+        # Load sim parameters
+        self.sim_depth=sim_depth
+        self.batch_size=batch_size
+        self.blocks = batch_size*4
 
-# Initialize board and score 
-batch_size = 1000000
-blocks = batch_size * 4
-sim_depth = 20
+        # Compile kernel code
+        self.mod = SourceModule(kernel_code, no_extern_c=True)
 
-initial_board = np.array([[1, 1, 0, 0],
-                          [2, 2, 0, 0],
-                          [0, 3, 0, 0],
-                          [0, 1, 0, 0]], dtype=np.int8)
-initial_score = np.int32(0)
-g_initial_board = cuda.mem_alloc(initial_board.nbytes)
-cuda.memcpy_htod(g_initial_board, initial_board)
+        # Make room for and format outputs
+        self.final_boards = np.zeros((4, batch_size, 4, 4), dtype=np.int8)
+        self.g_final_boards = cuda.mem_alloc(self.final_boards.nbytes)
+        self.final_scores = np.zeros((4, batch_size), dtype=np.int32)
+        self.g_final_scores = cuda.mem_alloc(self.final_scores.nbytes)
 
-# Make room for and format outputs
-final_boards = np.zeros((4, batch_size, 4, 4), dtype=np.int8)
-g_final_boards = cuda.mem_alloc(final_boards.nbytes)
-final_scores = np.zeros((4, batch_size), dtype=np.int32)
-g_final_scores = cuda.mem_alloc(final_scores.nbytes)
+        self.firstMoveLegal = np.zeros((4), dtype=np.bool_)
+        self.g_firstMoveLegal = cuda.mem_alloc(self.firstMoveLegal.nbytes)
 
-# Load kernel code
-mod = SourceModule(kernel_code, no_extern_c=True)
+        self.mean_scores = np.zeros(4, dtype=np.float64)
+        self.g_mean_scores = cuda.mem_alloc(self.mean_scores.nbytes)
 
-# Setup curand
-curand_states = cuda.mem_alloc(blocks * 48)
-mod.get_function("setupCurand")(curand_states, np.uint64(time.time()), block=(1, 1, 1), grid=(blocks, 1, 1))
+        # Setup curand
+        self.curand_states = cuda.mem_alloc(self.blocks * 48)
+        self.mod.get_function("setupCurand")(self.curand_states, np.uint64(time.time()), block=(1, 1, 1), grid=(self.blocks, 1, 1))
 
-# Setup boards with first moves (left, up, right, down)
-firstMoveLegal = np.zeros((4), dtype=np.bool_)
-g_firstMoveLegal = cuda.mem_alloc(firstMoveLegal.nbytes)
-fourplicate = mod.get_function("fourplicate")
-firstMoves = mod.get_function("firstMoves")
-fourplicate(g_initial_board, g_final_boards, initial_score, g_final_scores, np.int32(batch_size), block=(16, 1, 1), grid=(4, 1, 1))
-firstMoves(g_final_boards, g_final_scores, curand_states, np.int32(batch_size), g_firstMoveLegal, block=(4, 1, 1), grid=(4, 1, 1))
-cuda.Context.synchronize()
+        # Load functions from kernel code:
+        self.fourplicate = self.mod.get_function("fourplicate")
+        self.firstMoves = self.mod.get_function("firstMoves")
+        self.duplicate = self.mod.get_function("duplicate")
+        self.firstRandoms = self.mod.get_function("firstRandoms")
+        self.simulate = self.mod.get_function("simulate")
+        self.calcMeans = self.mod.get_function("calcMeans")
 
-# For testing
-"""four_boards = np.zeros((4, 4, 4), dtype=np.int8)
-four_scores = np.zeros((4), dtype=np.int32)
-cuda.memcpy_dtoh(final_boards, g_final_boards)
-cuda.memcpy_dtoh(final_scores, g_final_scores)
-print(initial_board)
-for x1,i in enumerate(final_boards):
-    for x2,j in enumerate(i):
-        if np.any(j != np.zeros((4,4),dtype=np.int8)):
-            print(x1,x2)
-            print(j)
-            print()
-for i in range(len(final_scores)):
-    for k in range(len(final_scores[i])):
-        if final_scores[i][k] != 0:
-            print(f"{i} {k}: {final_scores[i][k]}")"""
+    def bestMove(self, initial_score: int, initial_board: np.array):
+        # Initialize board and score 
+        initial_board = initial_board.copy()
+        # print(initial_board)
+        initial_board[initial_board != 0] = np.log2(initial_board[initial_board != 0])
+        initial_board = initial_board.astype(np.int8)
+        initial_score = np.int32(initial_score)
+        g_initial_board = cuda.mem_alloc(initial_board.nbytes)
+        cuda.memcpy_htod(g_initial_board, initial_board)
 
-# Copy boards batch_size times
-duplicate = mod.get_function("duplicate")
-firstRandoms = mod.get_function("firstRandoms")
-duplicate(g_final_boards, g_final_scores, np.int32(batch_size), g_firstMoveLegal, block=(16,1, 1), grid=(batch_size-1, 1, 1))
-firstRandoms(g_final_boards, curand_states, g_firstMoveLegal, np.int32(batch_size), block=(1, 1, 1), grid=(blocks, 1, 1))
-cuda.Context.synchronize()
+        # Setup boards with first moves (left, up, right, down)
+        self.fourplicate(g_initial_board, self.g_final_boards, initial_score, self.g_final_scores, np.int32(self.batch_size), block=(16, 1, 1), grid=(4, 1, 1))
+        self.firstMoves(self.g_final_boards, self.g_final_scores, self.curand_states, np.int32(self.batch_size), self.g_firstMoveLegal, block=(4, 1, 1), grid=(4, 1, 1))
+        cuda.Context.synchronize()
 
-# For testing
-"""cuda.memcpy_dtoh(final_boards, g_final_boards)
-cuda.memcpy_dtoh(final_scores, g_final_scores)
-print(initial_board)
-# count=0
-# for i in [final_boards[0]]:
-#     for j in i:
-#         if np.any(j != i[0]):
-            # print("SOMETHING WENT WRONG: PANIK", i[0],j)
-            # count+=1
-# for i in final_scores:
-#     for j in i:
-#         if j != i[0]:
-#             print("SOMETHING WENT WRONG: PANIK", i[0], j)
-# print(count)
-print(final_boards[:,4])
-print(final_scores[:,4])"""
+        # Copy boards batch_size times
+        self.duplicate(self.g_final_boards, self.g_final_scores, np.int32(self.batch_size), self.g_firstMoveLegal, block=(16,1, 1), grid=(self.batch_size-1, 1, 1))
+        self.firstRandoms(self.g_final_boards, self.curand_states, self.g_firstMoveLegal, np.int32(self.batch_size), block=(1, 1, 1), grid=(self.blocks, 1, 1))
+        cuda.Context.synchronize()
 
-# SIMULATE!!!!1!
-print("start")
-simulate = mod.get_function("simulate")
-simulate(g_final_boards, g_final_scores,curand_states, np.int32(sim_depth), np.int32(batch_size), g_firstMoveLegal, block=(4, 1, 1), grid=(blocks, 1, 1))
-print("plz don't be slow men")
-cuda.Context.synchronize()
-cuda.memcpy_dtoh(final_boards, g_final_boards)
-cuda.memcpy_dtoh(final_scores, g_final_scores)
-# print(final_boards[:,999999])
-# print(final_scores[:,999999])
-# print(final_boards[:,3])
-# print(final_scores[:,3])
-mean_scores = np.mean(final_scores, axis=1)
-std_scores = np.std(final_scores, axis=1,ddof=1)
-bounds = [(mean_scores[i] - 1.96*std_scores[i]/np.sqrt(batch_size), mean_scores[i] + 1.96*std_scores[i]/np.sqrt(batch_size)) for i in range(4)]
-print(bounds, mean_scores)
+        # SIMULATE!!!!1!
+        # print("start")
+        self.simulate(self.g_final_boards, self.g_final_scores, self.curand_states, np.int32(self.sim_depth), np.int32(self.batch_size), self.g_firstMoveLegal, block=(4, 1, 1), grid=(self.blocks, 1, 1))
+        cuda.Context.synchronize()
+        # print("plz don't be slow men")
+        # cuda.memcpy_dtoh(self.final_boards, self.g_final_boards)
+        # cuda.memcpy_dtoh(self.final_scores, self.g_final_scores)
+        # print(final_boards[:,999999])
+        # print(final_scores[:,999999])
+        # print(final_boards[:,3])
+        # print(final_scores[:,3])
+        # mean_scoresF = np.mean(self.final_scores, axis=1)
+        # std_scores = np.std(self.final_scores, axis=1,ddof=1)
+        # bounds = [(mean_scores[i] - 1.96*std_scores[i]/np.sqrt(self.batch_size), mean_scores[i] + 1.96*std_scores[i]/np.sqrt(self.batch_size)) for i in range(4)]
+        cuda.memcpy_dtoh(self.firstMoveLegal, self.g_firstMoveLegal)
+        # mean_scoresF[np.logical_not(self.firstMoveLegal)] = -1
+
+        self.calcMeans(self.g_final_scores, np.int32(self.batch_size), self.g_mean_scores, block=(1, 1, 1), grid=(4, 1, 1))
+        cuda.Context.synchronize()
+        cuda.memcpy_dtoh(self.mean_scores, self.g_mean_scores)
+        self.mean_scores[np.logical_not(self.firstMoveLegal)] = -1
+        # print(mean_scoresF, "\n", self.mean_scores,sep="")
+        # print(self.mean_scores)
+        return np.argmax(self.mean_scores)
+
+if __name__ == "__main__":
+    sim = simulate2048()
+    cProfile.run('sim.bestMove(0, np.array([[2,4,2,0],[2,16,8,2],[2,0,0,0],[2,0,0,0]]))','profile_output')
+    p = pstats.Stats('profile_output')
+    p.sort_stats('cumulative').print_stats(50)
